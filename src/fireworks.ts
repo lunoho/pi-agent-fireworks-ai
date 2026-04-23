@@ -1,8 +1,14 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { execSync } from "node:child_process";
+import { exec } from "node:child_process";
+import { promisify } from "node:util";
+
+const execAsync = promisify(exec);
+
+const CACHE_PATH = join(homedir(), ".pi/agent/.fireworks-model-cache.json");
+const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 
 interface FirectlMeta {
 	display_name?: string;
@@ -15,6 +21,11 @@ interface FirectlMeta {
 	}>;
 }
 
+interface CacheEntry {
+	ts: number;
+	meta: FirectlMeta | null;
+}
+
 function getApiKey(): string | undefined {
 	if (process.env.FIREWORKS_API_KEY) return process.env.FIREWORKS_API_KEY;
 	try {
@@ -25,10 +36,9 @@ function getApiKey(): string | undefined {
 	return undefined;
 }
 
-function getFirectlMeta(id: string): FirectlMeta | null {
+async function getFirectlMeta(id: string): Promise<FirectlMeta | null> {
 	try {
-		const stdout = execSync(`firectl model get "${id}" --output json`, {
-			encoding: "utf-8",
+		const { stdout } = await execAsync(`firectl model get "${id}" --output json`, {
 			timeout: 10000,
 			stdio: ["pipe", "pipe", "ignore"],
 		});
@@ -36,6 +46,30 @@ function getFirectlMeta(id: string): FirectlMeta | null {
 	} catch {
 		return null;
 	}
+}
+
+function loadCache(): Map<string, FirectlMeta | null> {
+	try {
+		if (!existsSync(CACHE_PATH)) return new Map();
+		const raw = JSON.parse(readFileSync(CACHE_PATH, "utf-8")) as Record<string, CacheEntry>;
+		const now = Date.now();
+		const valid = new Map<string, FirectlMeta | null>();
+		for (const [id, entry] of Object.entries(raw)) {
+			if (now - entry.ts < CACHE_TTL_MS) valid.set(id, entry.meta);
+		}
+		return valid;
+	} catch {
+		return new Map();
+	}
+}
+
+function saveCache(cache: Map<string, FirectlMeta | null>) {
+	try {
+		const record: Record<string, CacheEntry> = {};
+		const now = Date.now();
+		for (const [id, meta] of cache) record[id] = { ts: now, meta };
+		writeFileSync(CACHE_PATH, JSON.stringify(record, null, 2));
+	} catch {}
 }
 
 function parsePrice(meta: FirectlMeta["sku_infos"]) {
@@ -117,9 +151,30 @@ export default async function (pi: ExtensionAPI) {
 		}
 	}
 
+	// Load cache and figure out which models need firectl calls
+	const cache = loadCache();
+	const idsToFetch: string[] = [];
+	for (const id of allIds) {
+		if (!cache.has(id)) idsToFetch.push(id);
+	}
+
+	if (idsToFetch.length > 0) {
+		console.log(`[fireworks] Fetching metadata for ${idsToFetch.length} models...`);
+		const start = performance.now();
+		// Parallel firectl calls
+		const results = await Promise.all(
+			idsToFetch.map(async (id) => ({ id, meta: await getFirectlMeta(id) })),
+		);
+		for (const { id, meta } of results) cache.set(id, meta);
+		saveCache(cache);
+		console.log(`[fireworks] Metadata fetched in ${Math.round(performance.now() - start)}ms`);
+	} else {
+		console.log("[fireworks] Using cached metadata");
+	}
+
 	const models: any[] = [];
 	for (const id of allIds) {
-		const meta = getFirectlMeta(id);
+		const meta = cache.get(id) ?? null;
 		const shortName = id.replace("accounts/fireworks/models/", "");
 
 		if (meta) {
