@@ -90,6 +90,7 @@ function parsePrice(meta: FirectlMeta["sku_infos"]) {
 // Models we always want registered (API discovery might miss some)
 const BASE_MODELS = new Set([
 	"accounts/fireworks/models/kimi-k2p6",
+	"accounts/fireworks/routers/kimi-k2p6-turbo",
 	"accounts/fireworks/models/llama-v3p1-405b-instruct",
 	"accounts/fireworks/models/deepseek-r1",
 	"accounts/fireworks/models/minimax-m2p7",
