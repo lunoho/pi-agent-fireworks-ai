@@ -1,0 +1,25 @@
+{
+  "name": "pi-agent-fireworks-ai",
+  "version": "1.0.0",
+  "description": "Custom Fireworks AI provider for the pi coding agent",
+  "private": true,
+  "type": "module",
+  "pi": {
+    "extensions": [
+      "./src/fireworks.ts"
+    ]
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lunoho/pi-agent-fireworks-ai.git"
+  },
+  "keywords": [
+    "pi",
+    "coding-agent",
+    "fireworks",
+    "fireworks-ai",
+    "llm-provider"
+  ],
+  "author": "",
+  "license": "MIT"
+}
